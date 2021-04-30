@@ -1,0 +1,1986 @@
+---
+title: "Endline R1 Data Report"
+author: "Cyrus Samii"
+date: "2/12/2019-present"
+output:
+  word_document:
+    toc: yes
+  html_notebook:
+    number_sections: yes
+  html_document:
+    df_print: paged
+    number_sections: yes
+    toc: yes
+---
+
+# Set up
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      results = 'asis') 
+knitr::opts_knit$set(root.dir="~/Google Drive/USAID Paraguay inclusive Value Chains/Data")
+```
+
+
+```{r, include=FALSE}
+library(rio)
+library(summarytools)
+st_options(plain.ascii = FALSE, # This is a must in Rmd documents
+            style = "rmarkdown",          # idem
+            dfSummary.varnumbers = FALSE, # Keeps results narrow
+            dfSummary.valid.col = FALSE)  # idem
+library(knitr)
+library(psych)
+library(gmodels)
+library(estimatr)
+library(gdata)
+library(doBy)
+source("scripts/analysis-functions.R")
+```
+
+We work out of the following folder:
+`~/Google Drive/USAID Paraguay inclusive Value Chains/Data/endline-data-r1`
+
+We load in the data, which are stored in Stata .dta format.  I print everything here in the report so it is clear what files we have.
+
+```{r}
+HH.sc <- as.data.frame(import("endline-data-r1/Cargaas E+E/Finales/1_Base_de_datos_principal_10_12_2018.dta"))
+roster <- as.data.frame(import("endline-data-r1/Cargaas E+E/Finales/2_personas_10_12_2018.dta"))
+transport <- as.data.frame(import("endline-data-r1/Cargaas E+E/Finales/3_transporte_10_12_2018.dta"))
+lote_princ <- as.data.frame(import("endline-data-r1/Cargaas E+E/Finales/4_lote_principal_10_12_2018.dta"))
+lote_secun <- as.data.frame(import("endline-data-r1/Cargaas E+E/Finales/5_lote_secundario_10_12_2018.dta"))
+prod_pecu <- as.data.frame(import("endline-data-r1/Cargaas E+E/Finales/6_produccion_pecuaria_10_12_2018.dta"))
+prod_deri <- as.data.frame(import("endline-data-r1/Cargaas E+E/Finales/7_productos_derivados_10_12_2018.dta"))
+tierr_vend <- as.data.frame(import("endline-data-r1/Cargaas E+E/Finales/8_tierras_que_vendio_10_12_2018.dta"))
+tierr_comp <- as.data.frame(import("endline-data-r1/Cargaas E+E/Finales/9_tierras_que_compro_10_12_2018.dta"))
+tierr_alqu_a <- as.data.frame(import("endline-data-r1/Cargaas E+E/Finales/10_tierras_que_alquilo_a_otros_10_12_2018.dta"))
+tierr_alqu_d <- as.data.frame(import("endline-data-r1/Cargaas E+E/Finales/11_tierras_que_alquilo_de_otros_10_12_2018.dta"))
+design_d <- as.data.frame(import("working/covdata-w-treat.csv"))
+```
+
+```{r, echo=FALSE}
+HH.sc$dist <- as.character(HH.sc[,"_2_distrito"])
+HH.sc$dist[as.character(HH.sc[,"_2_distrito"])=="Azote'y"] <- "Azotey"
+HH.sc$dist[as.character(HH.sc[,"_2_distrito"])=="General Elizardo Aquino"] <- "Gral. E. Aquino"
+HH.sc$dist[as.character(HH.sc[,"_2_distrito"])=="Guayaibi"] <- "Guayaivi"
+HH.sc$dist[as.character(HH.sc[,"_2_distrito"])=="Itacurubi del Rosario"] <- "Itacurbi del Rosario"
+HH.sc$dist[as.character(HH.sc[,"_2_distrito"])=="Jasy Kañy"] <- "Jasy Kany"
+HH.sc$dist[as.character(HH.sc[,"_2_distrito"])=="Yby Pyta"] <- "Yvy Pyta"
+HH.sc$dist[as.character(HH.sc[,"_2_distrito"])=="Yby Ya'u"] <- "Yby Yau"
+HH.sc$dist[as.character(HH.sc[,"_2_distrito"])=="Yrybukua"] <- "Yryvukua"
+HH <- cbind(design_d[match(HH.sc$dist, as.character(design_d$distrito)), ], HH.sc)
+HH <- HH[order(HH$treated, HH$dist), ]
+
+HH$leader <- HH[,"_17_lider_sino"]
+HH$leader[is.na(HH[,"_17_lider_sino"])] <- 0
+```
+
+# Topline conclusions to inform second wave
+
+* Much of the action is at the level of *leaders* and the *organizations*. Not much seems to have trickled down to non-leader producers, in terms of either information or opportunities for participation.  Need to be sure in endline that we have a good leaders sample.  We want to follow up with these leaders to see if things have progressed.  Is there any other information that might allow us to discern who might be a secondary leader to the president?  That could increase the number of people on which we might see effects.
+
+* *Avoid skip patterns!!* In a number of sections we gathered almost no information because we asked a poorly worded yes-no question to start, and then conditioned the rest of the section on whether they answered "yes". As a result, we received no information from the vast majority of respondents, making the data from those sections almost unusable.
+
+
+# Democratizing producer-municipality interactions
+
+## Perceptions of democratic access and responsiveness (B)
+The first set of indicators get at producers' perceptions that organization can meaningfully engage with municipal leaders, and that mayors will be responsive to producers' priorities.  These are measured in module B of the household surveys. Here is a summary of the raw data for these questions:
+
+```{r, echo=F}
+print(dfSummary(HH[,grep("_b_", names(HH))]), method="render")
+```
+The key variables of interest are B1, B2, and B3.  
+
+### Data prep
+
+B1 gets at "do you think institutionalized processes are in place for voicing demands?"  They are coded as 1 being "clear procedures exist, they are followed, municipality responds", through to 3 being "no procedures, mayor doesn't respond, and people don't think it's worth trying."  We will reverse code so that higher values imply more responsiveness. Need to attend to missing data too, because this will mess everything up. We can code missing as 3, and then interpret the variable as whether people could affirm that there are procedures that exist to some degree.
+```{r}
+HH[,"_b_1_situacion_1"][HH[,"_b_1_situacion_1"] %in% c(99, 100)] <- NA
+HH[,"_b_1_situacion_1"][is.na(HH[,"_b_1_situacion_1"])] <- 3
+HH[,"use_b_1_situacion_1"] <- 3-HH[,"_b_1_situacion_1"]
+kable(table(HH[,"use_b_1_situacion_1"], HH[,"_b_1_situacion_1"], useNA="always"))
+```
+
+B2 gets at "do you think the institutions are responsive to people without special connections?" Essentialy, code 1 as "yes" and either 2 or 3 as "no".  So we need to do a recode, which takes value 1 if respondent said response 1 and then zero otherwise:
+```{r}
+HH[,"use_b_2_situacion_2"] <- as.numeric(HH[,"_b_2_situacion_2"]==1&!is.na(HH[,"_b_2_situacion_2"]))
+kable(table(HH[,"use_b_2_situacion_2"], HH[,"_b_2_situacion_2"], useNA="always"))
+```
+
+B3 gets at "do you actually use the institutions to voice demands?" We will code as 1 for "yes" and then 0 for otherwise.
+```{r}
+HH[,"use_b_3_participacion"] <- as.numeric(HH[,"_b_3_participacion"]==1&!is.na(HH[,"_b_3_participacion"]))
+kable(table(HH[,"use_b_3_participacion"], HH[,"_b_3_participacion"], useNA="always"))
+```
+
+### Basic analyses
+
+Cross-tabs:
+```{r}
+
+tab_b1b2 <- with(HH, table(use_b_1_situacion_1, use_b_2_situacion_2, useNA="always"))
+tab_b1b2_nona <- with(HH, table(use_b_1_situacion_1, use_b_2_situacion_2, useNA="no"))
+tab_b1b3 <- with(HH, table(use_b_1_situacion_1, use_b_3_participacion, useNA="always"))
+tab_b1b3_nona <- with(HH, table(use_b_1_situacion_1, use_b_3_participacion, useNA="no"))
+tab_b2b3 <- with(HH, table(use_b_2_situacion_2, use_b_3_participacion, useNA="always"))
+tab_b2b3_nona <- with(HH, table(use_b_2_situacion_2, use_b_3_participacion, useNA="no"))
+
+kable(tab_b1b2)
+print(summary(tab_b1b2_nona))
+kable(tab_b1b3)
+print(summary(tab_b1b3_nona))
+kable(tab_b2b3)
+print(summary(tab_b2b3_nona))
+```
+All the variables exhibit statistically strong bivariate associations (as evident from the chi-sq. test p values).
+
+We want to combine into an index.  First, let's look at correlation and also Cronbach's alpha:
+```{r}
+corr_b <- cor(HH[,grep("use_b_", names(HH))], use="complete.obs")
+kable(print(corr_b))
+alpha_b <- alpha(corr_b)
+print(alpha_b[[1]]$std.alpha)
+```
+The overall alpha level is low, and from the correlation matrix, it appears that this is because of the last measure.  
+```{r}
+alpha(HH[,c("use_b_1_situacion_1","use_b_2_situacion_2")])[[1]]$std.alpha
+```
+Still only get a modest alpha, so while correlated, not *very* strongly so.  We can also look at PCA:
+```{r}
+pc_use_b <- prcomp(HH[,grep("use_b_", names(HH))], center=TRUE, scale=TRUE)
+kable(summary(pc_use_b)[[2]])
+kable(summary(pc_use_b)[[6]])
+```
+Again, the indication is pretty clear that the participation variable (B3) stands out from the other two.
+
+
+Check how things differ for leaders versus non-leaders.
+```{r echo=F}
+kable(as.data.frame(crossTab(HH[,"use_b_1_situacion_1"], HH$leader,
+         "B.1", "Leader")[[2]]))
+
+kable(as.data.frame(crossTab(HH[,"use_b_2_situacion_2"], HH$leader,
+         "B.2", "Leader")[[2]]))
+
+kable(as.data.frame(crossTab(HH[,"use_b_3_participacion"], HH$leader,
+         "B.3", "Leader")[[2]]))
+```
+For the two attitudinal questions, (B1 and B2), not much difference, but pretty pronounced difference when it comes to participation.
+
+That said, here is what I would propose: we can do an omnibus test for the whole module using ICW, which would upweight participation relative to the other two.  But then we also want to look at the item-specific effects, where for the latter, we are particularly interested in effects on leaders for participation.
+
+We create the ICW index and view the results, including how things look different for non-leaders and leaders:
+```{r, echo=F, fig.dim = c(5,5)}
+HH$icw_use_b <- icwIndex(HH[,grep("use_b_", names(HH))])[[2]]
+HH$sum_use_b <- apply(HH[,grep("use_b_", names(HH))], 1, sum)
+hist(HH$icw_use_b, main="Index of access and \n responsiveness perceptions")
+par(mfrow=c(2,1), mar=c(3,3,3,3))
+hist(HH$icw_use_b[HH$leader==0], freq=F, main="Non-leaders")
+hist(HH$icw_use_b[HH$leader==1], freq=F, main="Leaders")
+```
+
+### Estimating treatment effects
+
+#### Omnibus test for B module
+```{r echo=F}
+te_icw_b <- fitR("icw_use_b", "Access & Responsiveness (ICW)")
+te_sum_b <- fitR("sum_use_b", "Access & Responsiveness (sum)")
+lapply(lapply(list(te_icw_b, te_sum_b), resVec), kable)
+```
+
+#### Item level tests
+
+```{r}
+te_b1 <- fitR("use_b_1_situacion_1", "B1. Procedures")
+te_b2 <- fitR("use_b_2_situacion_2", "B2. Non-favoritism")
+te_b3 <- fitR("use_b_3_participacion", "B3. Engagement")
+lapply(lapply(list(te_b1, te_b2, te_b3), resVec), kable)
+```
+
+### Upshot
+
+* Need something that measures producer participation with finer gradation. E.g., could ask about participation within their organization.  Because at the muni level there is not much going on.
+
+* For vignette, instead of broken bridge, maybe something that has to do with agricultural extension.
+
+* We also have the following on the analysis plan: "mayors' sense that they are either constrained or empowered by the planning process."  This will require acquisition of data on mayors.  
+
+## Engagement with Development Institutions (C)
+
+The first question here was whether the subjects had any knowledge of the district development councils, then for those said yes, it was followed up with a question about whether there was a "producers' rountable".  Given the large number of no's on the first question, the second one is not so useful.
+
+The next two batteries ask about meetings between either oneself (`_c_3_`) or one's producer organization (`_c_4_`) with various municipal or national officials.
+
+Then last few (`_c_5_` to `_c_8_`) as about participation in the FECOPROD, CIRD, and then any other NGO activities.
+```{r}
+print(dfSummary(HH[,grep("_c_", names(HH))]), method="render")
+```
+
+### Knowledge of District Councils
+
+Clean up and do a sanity check by seeing if leaders are more likely to know about the council:
+```{r, echo=F}
+HH$use_c_1_consejo_distrito <- as.numeric(HH["_c_1_consejo_distrito"]==1)
+HH$use_c_1_consejo_distrito[is.na(HH$use_c_1_consejo_distrito)] <- 0
+leader_dis_coun <- 100*round(mean(subset(HH, leader==1)$use_c_1_consejo_distrito), 2)
+print(kable(as.data.frame(crossTab(HH$use_c_1_consejo_distrito, HH$leader, "Know of council","Leader")[[2]])))
+```
+We see that yes, leaders were more likely to know, but still only a minority (`r leader_dis_coun`%) did.  
+
+Curious as to whether this varies by district:
+- Non-leader households:
+```{r, echo=F}
+print(with(subset(HH, leader==0), 
+           kable(as.data.frame(cbind(tapply(use_c_1_consejo_distrito, distrito, function(x){round(mean(x),2)}),
+                                table(distrito))))))
+```
+- Leader:
+```{r, echo=F}
+print(with(subset(HH, leader==1), 
+     kable(as.data.frame(cbind(tapply(use_c_1_consejo_distrito, distrito, function(x){round(mean(x),2)}),
+                                table(distrito))))))
+```
+Let's look at how levels of leaders' versus households' awareness relate within municipalities:
+```{r, echo=F}
+par(pty="s")
+plot(with(subset(HH, leader==0), tapply(use_c_1_consejo_distrito, distrito, mean)),
+          with(subset(HH, leader==1), tapply(use_c_1_consejo_distrito, distrito, mean)),
+     xlab="Mean awareness (HH)", ylab="Mean awareness (Ldr)",
+     xlim=c(0,1), ylim=c(0,1))
+abline(a=0, b=1, lty="dashed")
+```
+Generally leaders are more aware, but such awareness is not ubiquitous among leaders.  
+
+Given this low level of knowledge, not so interesting to look at knowledge of producers' roundtables per se. Nonetheless, FWIW:
+```{r, echo=F}
+HH$use_c_2_mesa_produccion <- as.numeric(HH["_c_2_mesa_produccion"]==1)
+HH$use_c_2_mesa_produccion[is.na(HH$use_c_2_mesa_produccion)] <- 0
+kable(as.data.frame(crossTab(HH$use_c_2_mesa_produccion, HH$leader,"Aware of Roundtable","Leader")[[2]]))
+```
+We can create an index that scores people in terms of how many of these things they can confirm as being in existence:
+```{r, echo=F}
+HH$use_c_1and2 <- HH$use_c_1_consejo_distrito + HH$use_c_2_mesa_produccion
+kable(as.data.frame(crossTab(HH$use_c_1and2, HH$leader,"Knowledge score","Leader")[[2]]))
+```
+
+### Individual and organization meetings with development officials
+
+```{r, echo=F}
+for(i in 1:7){
+HH[paste0("use_c_3_reunion_",i)] <- makeBinary(paste0("_c_3_reunion_",i), HH, 1)
+HH[paste0("use_c_4_reunion_",i)] <- makeBinary(paste0("_c_4_reunion_",i), HH, 1)
+}
+
+indiv_meet_tab <- cbind(apply(subset(HH, leader==0)[grep("use_c_3_reunion_", names(HH))], 
+      2, 
+      mean),
+apply(subset(HH, leader==1)[grep("use_c_3_reunion_", names(HH))], 
+      2, 
+      mean))
+
+org_meet_tab <- cbind(apply(subset(HH, leader==0)[grep("use_c_4_reunion_", names(HH))], 
+      2, 
+      mean),
+apply(subset(HH, leader==1)[grep("use_c_4_reunion_", names(HH))], 
+      2, 
+      mean))
+
+colnames(indiv_meet_tab) <- colnames(org_meet_tab) <- c("Non-ldr.", "Ldr.")
+rownames(indiv_meet_tab) <- rownames(org_meet_tab) <- c("Mayor", 
+                              "Sec. prod.",
+                              "Prod. roundtable",
+                              "Dist. devt. counc.",
+                              "Min. Agr. Livst.",
+                              "Min. Pub. Works",
+                              "Min. Industry")
+```
+Here is how HH respondents reported their own meetings:
+```{r, echo=F}
+print(kable(round(indiv_meet_tab, 2)))
+```
+
+And how they reported whether their producers organization met:
+```{r, echo=F}
+print(kable(round(org_meet_tab, 2)))
+```
+Leaders obviously meet, themselves, at a much higher rate.  Leaders and non-leaders have a similar understanding of the extent to which their organizations met.  This is good, as it is indicative of there being communication between leaders and members.  This, combined with the higher rates of meeting among leaders, is indicative of a proper representation relationship.
+
+We can create an index of activity, that just adds all indicators together:
+```{r, echo=F, fig.dim=c(5,5)}
+HH$use_c_3_reunionsum <- apply(HH[grep("use_c_3_reunion_", names(HH))],
+                                1,
+                                sum)
+HH$use_c_4_reunionsum <- apply(HH[grep("use_c_4_reunion_", names(HH))],
+                                1,
+                                sum)
+breaksUp <- seq(from=-.5, to=7.5, by=1)
+par(mfrow=c(1,2))
+hist(subset(HH, leader==0)$use_c_3_reunionsum,
+     breaks=breaksUp,
+      main="Indiv. meeting \n activity (non-ldr.)",
+     xlab="Activity index")
+hist(subset(HH, leader==1)$use_c_3_reunionsum,
+     breaks=breaksUp,
+      main="Indiv. meeting \n activity (ldr.)",
+     xlab="Activity index")
+par(mfrow=c(1,2))
+hist(subset(HH, leader==0)$use_c_4_reunionsum,
+     breaks=breaksUp,
+      main="Org. meeting \n activity (non-ldr.)",
+     xlab="Activity index")
+hist(subset(HH, leader==1)$use_c_4_reunionsum,
+     breaks=breaksUp,
+      main="Org. meeting \n activity (ldr.)",
+     xlab="Activity index")
+```
+
+### NGO activity participation
+
+These ask about whether the respondent participated (not whether the organization participated).
+
+```{r, echo=F}
+HH["use_c_5_fecoprod"] <- makeBinary("_c_5_fecoprod", HH, 1)
+HH["use_c_6_cird"] <- makeBinary("_c_6_cird", HH, 1)
+HH["use_c_7_ong"] <- makeBinary("_c_7_ong", HH, 1)
+ngo_tab <- cbind(apply(subset(HH, leader==0)[c("use_c_5_fecoprod", "use_c_6_cird","use_c_7_ong")], 
+      2,
+      mean),
+apply(subset(HH, leader==1)[c("use_c_5_fecoprod", "use_c_6_cird","use_c_7_ong")], 
+      2,
+      mean))
+
+colnames(ngo_tab) <- c("Non-ldr.","Ldr.")
+rownames(ngo_tab) <- c("FECOPROD","CIRD","Other NGO")
+kable(round(ngo_tab, 2))
+```
+
+### Treatment effects
+
+
+```{r, echo=F}
+te_c1 <- fitR("use_c_1_consejo_distrito", "C1. Know of council")
+te_c2 <- fitR("use_c_2_mesa_produccion", "C2. Know of roundtable")
+te_c1and2 <- fitR("use_c_1and2", "C1/C2. Know of council/roundtable")
+te_c3 <- fitR("use_c_3_reunionsum", "C3. Activities w/ dev. ofcl.")
+
+te_c3_1 <- fitR("use_c_3_reunion_1", "C3. Meet w/ Mayor")
+te_c3_2 <- fitR("use_c_3_reunion_2", "C3. Meet w/ Sec. prod.")
+te_c3_3 <- fitR("use_c_3_reunion_3", "C3. Meet w/ Prod. rndtble.")
+te_c3_4 <- fitR("use_c_3_reunion_4", "C3. Meet w/ Dist. dev. cncl.")
+te_c3_5 <- fitR("use_c_3_reunion_5", "C3. Meet w/ Min. Agr. Livst.")
+te_c3_6 <- fitR("use_c_3_reunion_6", "C3. Meet w/ Min. Pub. Works")
+te_c3_7 <- fitR("use_c_3_reunion_7", "C3. Meet w/ Min. Industry")
+
+te_c4 <- fitR("use_c_4_reunionsum", "C4. Org. activities w/ dev. ofcl.")
+
+te_c4_1 <- fitR("use_c_4_reunion_1", "C4. Org meet w/ Mayor")
+te_c4_2 <- fitR("use_c_4_reunion_2", "C4. Org meet w/ Sec. prod.")
+te_c4_3 <- fitR("use_c_4_reunion_3", "C4. Org meet w/ Prod. rndtble.")
+te_c4_4 <- fitR("use_c_4_reunion_4", "C4. Org meet w/ Dist. dev. cncl.")
+te_c4_5 <- fitR("use_c_4_reunion_5", "C4. Org meet w/ Min. Agr. Livst.")
+te_c4_6 <- fitR("use_c_4_reunion_6", "C4. Org meet w/ Min. Pub. Works")
+te_c4_7 <- fitR("use_c_4_reunion_7", "C4. Org meet w/ Min. Industry")
+
+
+te_c5 <- fitR("use_c_5_fecoprod", "C5. FECOPROD part.")
+te_c6 <- fitR("use_c_6_cird", "C6. CIRD part.")
+te_c7 <- fitR("use_c_7_ong", "C7. Other NGO part.")
+
+lapply(lapply(list(te_c1, 
+                   te_c2,
+                   te_c1and2,
+                   te_c3,
+                   te_c3_1,
+                   te_c3_2,
+                   te_c3_3,
+                   te_c3_4,
+                   te_c3_5,
+                   te_c3_6,
+                   te_c3_7,
+                   te_c4_1,
+                   te_c4_2,
+                   te_c4_3,
+                   te_c4_4,
+                   te_c4_5,
+                   te_c4_6,
+                   te_c4_7,
+                   te_c4,
+                   te_c5,
+                   te_c6,
+                   te_c7), 
+              resVec), kable)
+```
+Not sure why the CIRD variable is not quite checking out.  Let's look at the district means of that variable:
+```{r, echo=F}
+cird_dist_tab <- cbind(
+tapply(subset(HH, leader==0)$treated, 
+       subset(HH, leader==0)$distrito,
+       mean),
+round(tapply(subset(HH, leader==0)$use_c_6_cird, 
+       subset(HH, leader==0)$distrito,
+       mean),2),
+table(subset(HH, leader==0)$distrito),
+tapply(subset(HH, leader==1)$treated, 
+       subset(HH, leader==1)$distrito,
+       mean),
+round(tapply(subset(HH, leader==1)$use_c_6_cird, 
+       subset(HH, leader==1)$distrito,
+       mean),2),
+table(subset(HH, leader==1)$distrito)
+)
+colnames(cird_dist_tab) <- c("Non ldr.: Treated",
+                             "CIRD",
+                             "N",
+                             "Ldr.: Treated",
+                             "CIRD",
+                             "N")
+kable(cird_dist_tab)
+```
+
+
+So seems like there is lots of noise here. Need something better by way of a direct manipulation check with respect to CIRD per se, although we do see increases in meeting with dev't council and production roundtable, which are quite specific to the intervention.  Maybe this is something about the way that CIRD worked, to fly sort of under the radar??
+
+### Upshot
+
+Measurement of engagement with municipal and national officials seems to be working.  We need a better way to capture engagement with CIRD though.
+
+## Perception that municipal planning process is fair and open (D)
+
+Now we turn to module D, which focuses on producers' perceptions as to whether the municipal development planning process is fair and open.
+
+```{r}
+print(dfSummary(HH[,grep("_d_", names(HH))]), method="render")
+```
+
+### Awareness of the plan
+
+First indicator is simply awareness of a district development plan:
+```{r, echo=F}
+HH["use_d_1_plan_desarrollo"] <- makeBinary("_d_1_plan_desarrollo", HH, 1)
+kable(as.data.frame(crossTab(HH$use_d_1_plan_desarrollo, HH$leader, "Know of plan", "Leader")[[2]]))
+```
+
+Pretty low awareness, even among leaders.  So this means that we won't get much information from the other questions.  
+
+### Plan priorities
+
+These questions ask respondents who know about the plan what they thought the plan prioritized.
+
+First are the open responses.  These will need to be coded. But we can look:
+```{r}
+kable(table(HH[,"_d_2_objetivos_1"][HH[,"_d_2_objetivos_1"]!=""&HH[,"_d_2_objetivos_1"]!="no sabe"&HH[,"_d_2_objetivos_1"]!="No Sabe"&HH[,"_d_2_objetivos_1"]!="Ns"&HH[,"_d_2_objetivos_1"]!="NS"&HH[,"_d_2_objetivos_1"]!="No sabe"]))
+
+kable(table(HH[,"_d_2_objetivos_2"][HH[,"_d_2_objetivos_2"]!=""&HH[,"_d_2_objetivos_2"]!="no sabe"&HH[,"_d_2_objetivos_2"]!="No Sabe"&HH[,"_d_2_objetivos_2"]!="Ns"&HH[,"_d_2_objetivos_2"]!="NS"&HH[,"_d_2_objetivos_2"]!="Na sabe"&HH[,"_d_2_objetivos_2"]!="No"&HH[,"_d_2_objetivos_2"]!="No sab"&HH[,"_d_2_objetivos_2"]!="No sab3"&HH[,"_d_2_objetivos_2"]!="No sabe"&HH[,"_d_2_objetivos_2"]!="No sabe otro"&HH[,"_d_2_objetivos_2"]!="Nosabe"&HH[,"_d_2_objetivos_2"]!="Ya no sabe"]))
+```
+
+Now we ask about whether the plans specifically included roads, extension services, or other support to small producers:
+
+```{r}
+for(i in 1:3){
+  HH[,paste0("use_d_3_incluidos_",i)] <- makeBinary(paste0("_d_3_incluidos_",i),HH,1)
+}
+
+kable(as.data.frame(crossTab(HH$use_d_3_incluidos_1, HH$leader, "Plan has roads", "Leader")[[2]]))
+
+kable(as.data.frame(crossTab(HH$use_d_3_incluidos_2, HH$leader, "Plan extn. srvcs.", "Leader")[[2]]))
+
+kable(as.data.frame(crossTab(HH$use_d_3_incluidos_3, HH$leader, "Plan has other support", "Leader")[[2]]))
+```
+
+We can construct an index that measures the extent to which respondents understood the plans to incorporate these three things, which we learned in the baseline to be important for small producers. This would be an index measuring something like "the extent to which respondent thinks the plan is addressing producers' needs":
+
+```{r echo=F}
+HH$use_d_3_sum <- HH$use_d_3_incluidos_1+HH$use_d_3_incluidos_2+HH$use_d_3_incluidos_3
+kable(as.data.frame(crossTab(HH$use_d_3_sum, HH$leader, "Aware that plan addresses needs index", "Leader")[[2]]))
+```
+
+
+### Participation in the plan
+
+```{r echo=F}
+HH$use_d_4_participacion <- makeBinary("_d_4_participacion",HH,1)
+HH$use_d_5_part_creacion <- makeBinary("_d_5_part_creacion",HH,1)
+kable(as.data.frame(crossTab(HH$use_d_4_participacion, HH$leader, "Part. in plan", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_d_5_part_creacion, HH$leader, "Org. part. in plan", "Leader")[[2]]))
+```
+
+
+### Perception that district development plan attends to producers' interests
+
+
+```{r}
+
+HH$use_d_6_expresar_prioridades_rev <- revCleanLik(HH[,"_d_6_expresar_prioridades"])
+HH$use_d_7_expresar_prioridades_rev <- revCleanLik(HH[,"_d_7_expresar_prioridades"])
+HH$use_d_8_provisions_rev <- revCleanLik(HH[,"_d_8_provision"])
+HH$use_d_9_prioridades_rev <- revCleanLik(HH[,"_d_9_prioridades"])
+
+kable(as.data.frame(crossTab(HH$use_d_6_expresar_prioridades_rev, HH$leader, "Plan lets producers express", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_d_7_expresar_prioridades_rev, HH$leader, "Plan lets your org. express", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_d_8_provisions_rev, HH$leader, "Plan will improve services", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_d_9_prioridades_rev, HH$leader, "Budget reflects priorities", "Leader")[[2]]))
+```
+
+
+We can make an index that adds all of these to make an index of extent to which they can affirm that the planning attends to their and producers' needs:
+
+```{r}
+HH$use_d_6to9_sum <- HH$use_d_6_expresar_prioridades_rev + HH$use_d_7_expresar_prioridades_rev + HH$use_d_8_provisions_rev + HH$use_d_9_prioridades_rev
+```
+
+
+
+
+### Perception that muncipal planning generally attends to producers' interests
+
+```{r, echo=F}
+HH$use_d_10_gasto_municipal_rev <- revCleanLik(HH[,"_d_10_gasto_municipal"])
+kable(as.data.frame(crossTab(HH$use_d_10_gasto_municipal_rev, HH$leader, "Planning attends to prod.", "Leader")[[2]]))
+```
+
+### Treatment effects
+
+```{r}
+te_d1 <- fitR("use_d_1_plan_desarrollo", "D1. Aware of plan")
+te_d3 <- fitR("use_d_3_sum", "D3. Affirm plan addresses spec. needs")
+te_d4 <- fitR("use_d_4_participacion", "D4. Part. in planning")
+te_d5 <- fitR("use_d_5_part_creacion", "D5. Org. part. in planning")
+te_d6to9 <- fitR("use_d_6to9_sum", "D6 to D9. Plan attends to needs")
+te_d10 <- fitR("use_d_10_gasto_municipal_rev", "D10. Muni. attends to needs")
+
+lapply(lapply(list(te_d1, 
+                   te_d3,
+                   te_d4,
+                   te_d5,
+                   te_d6to9,
+                   te_d10), 
+              resVec), kable)
+```
+
+
+### Upshot
+
+Need to measure access and fairness perceptions in a way that does not condition on people's awareness of the plan per se.
+
+# Institutionalizing buyer-municipality-producer interaction (E)
+
+
+These questions get at whether any new action vis-a-vis buyers was instigated.  
+
+```{r}
+print(dfSummary(HH[,grep("_e_", names(HH))]), method="render")
+```
+
+Knowing now the nature of the intervention, not sure why we would think there would be effects here.  We will look here just to see if there is a need to keep a whole battery on this.
+
+```{r echo=F}
+HH$use_e_1_participacion_1 <- makeBinary("_e_1_participacion_1", HH, 1)
+HH$use_e_1_participacion_2 <- makeBinary("_e_1_participacion_2", HH, 1)
+HH$use_e_1_participacion_3 <- makeBinary("_e_1_participacion_3", HH, 1)
+HH$use_e_2_ayudas <- makeBinary("_e_2_ayudas", HH, 1)
+
+kable(as.data.frame(crossTab(HH$use_e_1_participacion_1, HH$leader, "Meet new buyers", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_e_1_participacion_2, HH$leader, "Neg. new contracts", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_e_1_participacion_3, HH$leader, "Meet muni. auth. re. buyers", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_e_2_ayudas, HH$leader, "Muni. auth. help w/ contracts", "Leader")[[2]]))
+
+HH$use_e_sum <- HH$use_e_1_participacion_1+HH$use_e_1_participacion_2+HH$use_e_1_participacion_3+HH$use_e_2_ayudas
+te_esum <- fitR("use_e_sum", "E sum. Buying opport. index")
+te_e1 <- fitR("use_e_1_participacion_1", "E1. Meet new buyers")
+te_e2 <- fitR("use_e_1_participacion_2", "E2. Neg. new contracts")
+te_e3 <- fitR("use_e_1_participacion_3", "E3. Meet muni. auth. re. buyers")
+te_e4 <- fitR("use_e_2_ayudas", "E4. Muni. auth. help w/ contracts")
+
+lapply(lapply(list(te_esum, 
+                   te_e1,
+                   te_e2,
+                   te_e3,
+                   te_e4), 
+              resVec), kable)
+```
+
+Suprisingly, there is indication of an effect.
+
+## Upshot
+
+Need to look into why we would be seeing these effects.  Add an open response -- for someone who said yes to any of the items, ask what the meetings were about.
+
+# Distribution of services by mayors and the municipality (F)
+
+To study whether mayors and municipalities target producers' needs, we focus on roads and transport, electricity, and technical assistance such as extension services. These are top priorities for producers in terms of the their demand for services from the municipality, as per our pre-intervention study on producers' needs and preferences.
+
+## Roads and transport
+
+The data include the section "F" questions in the HH data as well as the transport roster.  
+
+```{r}
+print(dfSummary(HH[,grep("_f_", names(HH))]), method="render")
+```
+
+### Use freight service
+
+First question asks whether producer transported products "using any freight service"?  The wording here seems problematic because producers may not have known what we meant by "freight service":
+
+```{r, echo=FALSE}
+HH$use_f_1_transporte_prod <- makeBinary("_f_1_transporte_prod", HH, 1)
+kable(as.data.frame(crossTab(HH$use_f_1_transporte_prod, HH$leader, "Used freight service", "Leader")[[2]]))
+```
+
+We see that even here leaders are more active.
+
+
+The following questions are then conditional on answering yes to the first, so we have lots of missing data.  Again, this was a mistake.  For what it's worth we can go through the others.
+
+### Severity of problems with transport
+
+```{r, echo=FALSE}
+HH$use_f_2_frec_problemas_lluvia  <- HH[,"_f_2_frec_problemas_lluvia"]
+HH$use_f_2_frec_problemas_lluvia[is.na(HH$use_f_2_frec_problemas_lluvia)]  <- 0
+HH$use_f_2_frec_problemas_lluvia[HH$use_f_2_frec_problemas_lluvia==99]  <- 0
+
+HH$use_f_3_frec_problemas_nolluvia   <- HH[,"_f_3_frec_problemas_nolluvia"]
+HH$use_f_3_frec_problemas_nolluvia[is.na(HH$use_f_3_frec_problemas_nolluvia )]  <- 0
+HH$use_f_3_frec_problemas_nolluvia[HH$use_f_3_frec_problemas_nolluvia==99]  <- 0
+HH$use_f_2_and_f_3 <- apply(cbind(HH$use_f_2_frec_problemas_lluvia,
+                                 HH$use_f_3_frec_problemas_nolluvia),
+                           1,
+                           mean)
+
+kable(as.data.frame(crossTab(HH$use_f_2_frec_problemas_lluvia, HH$leader, "Severity of transport problems, rainy", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_f_3_frec_problemas_nolluvia, HH$leader, "Severity of transport problems, non-rainy", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_f_2_and_f_3, HH$leader, "Severity of transport problems, avg. of rainy/non-rainy", "Leader")[[2]]))
+
+
+```
+
+### Transport costs
+
+Here we need to work with the transport roster and then merge the information back into the HH dataset.
+
+```{r, echo=FALSE}
+print(dfSummary(transport, method="render"))
+```
+
+So we have data on the following, with comments on how we might analyze:
+
+* Products transported and their quantity. Not sure how we can use this for effects, although we can use it for descriptive purposes.
+
+* How far the product was transported. Again not sure how to use this, since effects could go either up (if there was transporting to more distant markets happening) or down (if new roads shorten the distance).  Nonetheless, we could use it for descriptive purposes.
+
+* Total amount spent on transport.  Again not sure how to use this, since effects could go either up (if there was more transporting happening) or down (if the only effect is on costs and not volume).  Nonetheless, we could use it for descriptive purposes.
+
+* Whether there were any losses. This one seems good, although we should not that losses could go up if there was more volume. So need to account for effects on volume. Should be asked of everyone!!!
+
+* Value of losses. Again seems good, although we should not that losses could go up if there was more volume. So need to account for effects on volume. Should be asked of everyone!!!
+
+* Road improvements -- seems good. Should be asked of everyone!!!
+
+NB: The following tables and histograms use the row in the roster as the unit of analysis. So this corresponds to each *product* listed, and so some HH appear more than once.
+
+
+#### Products transported
+```{r, echo=FALSE}
+kable(table(transport[,"_f_4_prod_"]))
+```
+
+#### Distances transported
+
+```{r, echo=FALSE}
+transport$use_f_6_distancia <- transport[,"_f_6_distancia"]
+transport$use_f_6_distancia[transport[,"_f_6_distancia"]==-99] <- mean(transport$use_f_6_distancia[transport[,"_f_6_distancia"]!=99])
+transport$use_f_6_distancia[transport[,"_f_6_distancia"]>500] <- transport$use_f_6_distancia[transport[,"_f_6_distancia"]>500]/1000
+hist(transport$use_f_6_distancia)
+```
+
+#### Transport expenditures
+
+```{r, echo=FALSE}
+transport$use_f_7_gastos <- transport[,"_f_7_gastos"]
+transport$use_f_7_gastos[is.na(transport[,"_f_7_gastos"])] <- 0
+transport$use_f_7_gastos[transport[,"_f_7_gastos"]==-99] <- mean(transport$use_f_7_gastos[transport[,"_f_7_gastos"]!=99])
+hist(transport$use_f_7_gastos)
+transport$use_f_7_gastos_log <- log(transport$use_f_7_gastos+1)
+hist(transport$use_f_7_gastos_log)
+```
+
+
+#### Any losses
+
+```{r, echo=FALSE}
+transport$use_f_8_perdidas <- makeBinary("_f_8_perdidas", transport, 1)
+kable(table(transport$use_f_8_perdidas))
+```
+
+#### Value of losses
+
+```{r, echo=FALSE}
+transport$use_f_9_perdidas_cantidad <- transport[,"_f_9_perdidas_cantidad"]
+transport$use_f_9_perdidas_cantidad[is.na(transport[,"_f_9_perdidas_cantidad"])] <- 0
+transport$use_f_9_perdidas_cantidad[transport[,"_f_9_perdidas_cantidad"]==-99] <- mean(transport$use_f_9_perdidas_cantidad[transport[,"_f_9_perdidas_cantidad"]!=99])
+hist(transport$use_f_9_perdidas_cantidad)
+transport$use_f_9_perdidas_cantidad_log <- log(transport$use_f_9_perdidas_cantidad+1)
+hist(transport$use_f_9_perdidas_cantidad_log)
+par(pty="s")
+plotRange <- range(na.omit(c(transport$use_f_7_gastos_log, transport$use_f_9_perdidas_cantidad_log)))
+plot(transport$use_f_7_gastos_log, 
+     transport$use_f_9_perdidas_cantidad_log,
+     xlim=plotRange,
+     ylim=plotRange)
+abline(a=0, b=1)
+```
+
+
+#### Any improvements
+
+```{r}
+transport$use_f_10_mejoras <- makeBinary("_f_10_mejoras", transport, 1)
+kable(table(transport$use_f_10_mejoras))
+```
+
+#### Aggregated roster data merged with HH
+
+```{r, echo=FALSE}
+transport_collapse <- summaryBy(use_f_6_distancia +
+                         use_f_7_gastos +
+                         use_f_8_perdidas + 
+                         use_f_9_perdidas_cantidad + 
+                         use_f_10_mejoras ~ parent_key, 
+                       FUN=c(sum,max), data=transport)
+
+HH <- merge(HH, transport_collapse,
+            by.x = "key", 
+            by.y = "parent_key",
+            all.x=TRUE,
+            sort=TRUE)
+
+for(varUp in c("use_f_6_distancia.sum",
+                "use_f_7_gastos.sum",
+                "use_f_8_perdidas.max",
+                "use_f_9_perdidas_cantidad.sum",
+                "use_f_10_mejoras.max")){
+  HH[,varUp][is.na(HH[,varUp])] <- 0
+}
+
+hist(HH$use_f_6_distancia.sum)
+hist(HH$use_f_7_gastos.sum)
+HH$use_f_7_gastos.sum_log <- log(HH$use_f_7_gastos.sum+1)
+hist(HH$use_f_7_gastos.sum_log)
+kable(as.data.frame(crossTab(HH$use_f_8_perdidas.max, HH$leader, "Any losses", "Leader")[[2]]))
+hist(HH$use_f_9_perdidas_cantidad.sum)
+HH$use_f_9_perdidas_cantidad.sum_log <- log(HH$use_f_9_perdidas_cantidad.sum+1)
+hist(HH$use_f_9_perdidas_cantidad.sum_log)
+kable(as.data.frame(crossTab(HH$use_f_10_mejoras.max, HH$leader, "Any transport improvements", "Leader")[[2]]))
+```
+
+#### Treatment effects for module F
+
+```{r, echo=FALSE}
+te_f1 <- fitR("use_f_1_transporte_prod", "F1. Use freight service")
+te_f2_and_f3 <- fitR("use_f_2_and_f_3", "F2 and F3. Severity of problems")
+te_f6 <- fitR("use_f_6_distancia.sum", "F6. Transport distance")
+te_f7 <- fitR("use_f_7_gastos.sum_log", "F7. Transport costs (log)")
+te_f8 <- fitR("use_f_8_perdidas.max", "F8. Any losses")
+te_f9 <- fitR("use_f_9_perdidas_cantidad.sum_log", "F9. Cost of losses (log)")
+te_f10 <- fitR("use_f_10_mejoras.max", "F10. Any improvements")
+
+lapply(lapply(list(te_f1,
+                   te_f2_and_f3,
+                   te_f6, 
+                   te_f7,
+                   te_f8,
+                   te_f9,
+                   te_f10), 
+              resVec), kable)
+```
+
+Maybe there is something here, e.g., with respect to severity of problems, costs, and incidence of losses.  There is a weird negative effect on use of freight services for leaders, which again points to the potentially problematic nature of the question.  But with all the zero entries (due to people answering no on the first question), we just don't have much to work with.  Need to redesign this so that we don't screen out 80% of respondents on the basis of a question that may have been misunderstood.
+
+## Quality of Road and Electricity Services (G)
+
+```{r}
+print(dfSummary(HH[,grep("_g_", names(HH))]), method="render")
+```
+
+We now turn to module G, which asks about perceived quality of roads and electricity, as provided by the municipality:
+
+
+### Roads
+
+#### Descriptives
+
+We have:
+
+* g1: Quality of nearest road (paved=1, dirt=5).
+* g2: When were the last improvements. Here we code to the month that is at the midpoint of the ranges available, where for the last one ("more than 2 years") we code to 30 months.
+* g3: Time to municipal center (minutes)
+* g4: Time to the nearest paved road (minutes)
+* g6: Knowledge of plan to improve road
+
+
+```{r, echo=FALSE}
+HH$use_g_1_estado_camino <- HH[,"_g_1_estado_camino"]
+HH$use_g_1_estado_camino[is.na(HH[,"_g_1_estado_camino"])] <- median(HH$use_g_1_estado_camino[!is.na(HH[,"_g_1_estado_camino"])])
+HH$use_g_1_estado_camino[HH[,"_g_1_estado_camino"]==99] <- median(HH$use_g_1_estado_camino[!is.na(HH[,"_g_1_estado_camino"])])
+HH$use_g_1_estado_camino[HH[,"_g_1_estado_camino"]==98] <- median(HH$use_g_1_estado_camino[!is.na(HH[,"_g_1_estado_camino"])])
+kable(as.data.frame(crossTab(HH$use_g_1_estado_camino, HH$leader, "Quality of nearest road (paved=1, dirt=5)", "Leader")[[2]]))
+```
+
+```{r, echo=FALSE}
+HH$use_g_2_tiempo_mejora <- NA
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora"]==1] <- .5
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora"]==2] <- 7
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora"]==3] <- 18
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora"]==4] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "1"] <- 12
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "10 año"] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "10 años"] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "12 años"] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "15 año"] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "15 años"] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "2 año"] <- 24
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "20 años"] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "3 años"] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "4 meses"] <- 4
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "5 meses"] <- 5
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "6 año"] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "6 meses"] <- 6
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "7 años"] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "7 meses"] <- 7
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "8 años"] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "8 mese"] <- 8
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "8 meses"] <- 8
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "9 meses"] <- 9
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "Actualmente está haciendo mejora"] <- .5
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "Aún no se está terminando las mejoras"] <- .5
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "Cada votación"] <- 18
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "El asfaltado no necesita reparaciónes"] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "No reparo nunca desde que se inauguro"] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "No se arreagla."] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "No se hizo ningun trabajo"] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "Nunca"] <- 30
+HH$use_g_2_tiempo_mejora[HH[,"_g_2_tiempo_mejora_otro"] == "Nunca se arreglo"] <- 30
+HH$use_g_2_tiempo_mejora[is.na(HH$use_g_2_tiempo_mejora)] <- median(HH$use_g_2_tiempo_mejora[!is.na(HH$use_g_2_tiempo_mejora)])  
+hist(HH$use_g_2_tiempo_mejora)
+```
+
+```{r, echo=FALSE}
+# g3
+HH$use_g_3_epoca_lluvia_hr <- cleanNeg99mean("_g_3_epoca_lluvia_hr")
+HH$use_g_3_epoca_lluvia_min <- cleanNeg99mean("_g_3_epoca_lluvia_min")
+HH$use_g_3_epoca_lluvia_min_com <- HH$use_g_3_epoca_lluvia_min + 60*HH$use_g_3_epoca_lluvia_hr
+
+HH$use_g_3_epoca_sin_lluvia_hr <- cleanNeg99mean("_g_3_epoca_sin_lluvia_hr")
+HH$use_g_3_epoca_sin_lluvia_min <- cleanNeg99mean("_g_3_epoca_sin_lluvia_min")
+HH$use_g_3_epoca_sin_lluvia_min_com <- HH$use_g_3_epoca_sin_lluvia_min +  60*HH$use_g_3_epoca_sin_lluvia_hr
+
+HH$use_g_3_combined <- apply(cbind(HH$use_g_3_epoca_lluvia_min_com,
+                                   HH$use_g_3_epoca_sin_lluvia_min_com),
+                             1,
+                             mean)
+
+hist(HH$use_g_3_combined)
+```
+
+```{r, echo=FALSE}
+# g4
+
+HH$use_g_4_epoca_lluvia_hr <- cleanNeg99mean("_g_4_epoca_lluvia_hr")
+HH$use_g_4_epoca_lluvia_min <- cleanNeg99mean("_g_4_epoca_lluvia_min")
+HH$use_g_4_epoca_lluvia_min_com <- HH$use_g_4_epoca_lluvia_min + 60*HH$use_g_4_epoca_lluvia_hr
+
+HH$use_g_4_epoca_sin_lluvia_hr <- cleanNeg99mean("_g_4_epoca_sin_lluvia_hr")
+HH$use_g_4_epoca_sin_lluvia_min <- cleanNeg99mean("_g_4_epoca_sin_lluvia_min")
+HH$use_g_4_epoca_sin_lluvia_min_com <- HH$use_g_4_epoca_sin_lluvia_min +  60*HH$use_g_4_epoca_sin_lluvia_hr
+
+HH$use_g_4_combined <- apply(cbind(HH$use_g_4_epoca_lluvia_min_com,
+                                   HH$use_g_4_epoca_sin_lluvia_min_com),
+                             1,
+                             mean)
+
+hist(HH$use_g_4_combined)
+```
+
+```{r, echo=FALSE}
+# g6
+HH$use_g_6_plan_mejora <- makeBinary("_g_6_plan_mejora", HH, 1)
+kable(as.data.frame(crossTab(HH$use_g_6_plan_mejora, HH$leader, "Know of plan for road improvement", "Leader")[[2]]))
+```
+
+#### Create an index that aggregates all of this
+
+We use principal components.
+```{r, echo=FALSE}
+gr_1_to_6_mat <- HH[,c("use_g_1_estado_camino",
+                       "use_g_2_tiempo_mejora",
+                       "use_g_3_combined",
+                       "use_g_4_combined",
+                       "use_g_6_plan_mejora")]
+cor(gr_1_to_6_mat)
+prcomp_g_1_to_6 <- prcomp(gr_1_to_6_mat, center=TRUE, scale=TRUE)
+kable(summary(prcomp_g_1_to_6)[[2]])
+kable(summary(prcomp_g_1_to_6)[[6]])
+HH$use_g_1_to_6_prcomp <- predict(prcomp_g_1_to_6)[,1]
+```
+
+Useful to view this principal components analysis, because it shows that *time since last repair* and *belief that there are plans for repair* are negatively correlated, and so there is the expectation that places that have been neglected are indeed slated for repair.
+
+
+#### Treatment effects
+
+```{r, echo=FALSE}
+te_g1_to_6 <- fitR("use_g_1_to_6_prcomp", "G1 to G6. Road disrepair index")
+te_g1 <- fitR("use_g_1_estado_camino", "G1. Quality of nearest road (rev. coded)")
+te_g2 <- fitR("use_g_2_tiempo_mejora", "G2. Time since road improvements")
+te_g3 <- fitR("use_g_3_combined", "G3. Time to muni center")
+te_g4 <- fitR("use_g_4_combined", "G4. Time to paved road")
+te_g6 <- fitR("use_g_6_plan_mejora", "G6. Know of road impr. plan")
+
+lapply(lapply(list(te_g1_to_6,
+                   te_g1,
+                   te_g2,
+                   te_g3, 
+                   te_g4,
+                   te_g6), 
+              resVec), kable)
+```
+#### Notes
+
+These questions seem to work well, even if we are not seeing effects.  Suggest keeping it as is.
+
+### Electricity
+
+We have:
+
+* g8: house connected to electricity grid. There is almost no variation in this variable (99% say yes).
+* g9: has three-phase current connection. Also very little variation here (93% say no). 
+* g10: any extension of grid in your muni
+* g11: improvements in current quality
+* g12: your production has benefited from electricity improvements
+
+We can add g8 and g9 to get an index:
+```{r, echo=FALSE}
+HH$use_g_8_ande <- makeBinary("_g_8_ande", HH, 1)
+HH$use_g_9_corriente <- makeBinary("_g_9_corriente", HH, 1)
+HH$use_g8_plus_g9 <- HH$use_g_8_ande + HH$use_g_9_corriente
+kable(as.data.frame(crossTab(HH$use_g8_plus_g9, HH$leader, "Electricity access index", "Leader")[[2]]))
+```
+```{r, echo=FALSE}
+HH$use_g_10_extension_red  <- makeBinary("_g_10_extension_red", HH, 1)
+HH$use_g_11_calidad_corriente   <- makeBinary("_g_11_calidad_corriente", HH, 1)
+HH$use_g_12_beneficio   <- makeBinary("_g_12_beneficio", HH, 1)
+kable(as.data.frame(crossTab(HH$use_g_10_extension_red, HH$leader, "Recent elec. grid ext.", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_g_11_calidad_corriente, HH$leader, "Recent elec. current impr.", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_g_12_beneficio, HH$leader, "Prod. benefited from elec. improv.", "Leader")[[2]]))
+
+gr_10_to_12_mat <- HH[,c("use_g_10_extension_red",
+                       "use_g_11_calidad_corriente",
+                       "use_g_12_beneficio")]
+cor(gr_10_to_12_mat)
+prcomp_g_10_to_12 <- prcomp(gr_10_to_12_mat, center=TRUE, scale=TRUE)
+kable(summary(prcomp_g_10_to_12)[[2]])
+kable(summary(prcomp_g_10_to_12)[[6]])
+HH$use_gr_10_to_12_prcomp <- predict(prcomp_g_10_to_12)[,1]
+
+te_g8_and_9 <- fitR("use_g8_plus_g9", "G8 and 9. Elec. access index")
+te_g10_to_12 <- fitR("use_gr_10_to_12_prcomp", "G10 to 12. Elec. improve. index")
+te_g10 <- fitR("use_g_10_extension_red", "G10. Elctrc. grid extend")
+te_g11 <- fitR("use_g_11_calidad_corriente", "G11. Elctrc. improve current")
+te_g12 <- fitR("use_g_12_beneficio", "G12. Elctrc. benefit fr. imprvmnt.")
+
+lapply(lapply(list(te_g8_and_9,
+                   te_g10_to_12,
+                   te_g10,
+                   te_g11, 
+                   te_g12), 
+              resVec), kable)
+```
+
+#### Notes
+
+Results here are odd -- not sure at all why there would be indication of negative effect for these indicators. That said, the questions themselves seem sound to me, and I would suggest continuing to use them.
+
+## Training and Technical Assistance (H)
+
+This section contains data on 
+
+- Receipt of any training or technial assistance, and rest follow only if they answered yes,
+- From whom the training or technical assistance was received, and then
+- The type of assistance.
+
+
+```{r}
+print(dfSummary(HH[,grep("_h_", names(HH))]), method="render")
+```
+
+Looking at whether any training or technical assistance was received:
+
+```{r, echo=FALSE}
+HH$use_h_capacitacion_sino   <- makeBinary("_h_capacitacion_sino", HH, 1)
+kable(as.data.frame(crossTab(HH$use_g_10_extension_red, HH$leader, "Rec. training or tech. asstnc.", "Leader")[[2]]))
+
+te_h_capacitacion_sino <- fitR("use_h_capacitacion_sino", "H. Training or technical assistance")
+kable(resVec(te_h_capacitacion_sino))
+```
+
+Organizations:
+
+```{r, echo=FALSE}
+provList <- c("1. From prod. orgn.",
+              "2. From MAG/DEAG",
+              "3. From CAH/BNF",
+              "4. From munic.",
+              "5. From private entity",
+              "6. From SNPP/SINAFOCAL",
+              "7. From bank")
+for(i in 1:7){
+HH[,paste0("use_h_2_proveedor_no",i)] <- apply(as.matrix(HH[,"_h_2_proveedor"]),
+                                                1,
+                                            function(x){as.numeric(as.character(i)%in%strsplit(x, " "))})
+}
+
+for(i in 1:7){
+print(kable(as.data.frame(crossTab(HH[,paste0("use_h_2_proveedor_no",i)], 
+                             HH$leader, 
+                             provList[i], 
+                             "Leader")[[2]])))
+}
+```
+
+
+Only organizations with non-trivial amount of participation are producer's organization and MAG/DEAG. For those, here is what kind of training:
+
+Type of training from prod org:
+
+```{r, echo=FALSE}
+assistanceList <- c("Funding",
+              "Workshops",
+              "Mechanized asstnc./plowing",
+              "Animals",
+              "Seeds",
+              "Chemicals/fertilizer",
+              "Transport",
+              "Credit",
+              "Machinery",
+              "Prodct. infrstrctr.",
+              "Market/dist. infrstrctr.")
+for(i in 1:11){
+HH[,paste0("use_h_3_1_no",i)] <- apply(as.matrix(HH[,"_h_3_1"]),
+                                                1,
+                                            function(x){as.numeric(as.character(i)%in%strsplit(x, " "))})
+}
+
+for(i in 1:11){
+print(kable(as.data.frame(crossTab(HH[,paste0("use_h_3_1_no",i)], 
+                             HH$leader, 
+                             paste0(i,". Prod. org: ", assistanceList[i]), 
+                             "Leader")[[2]])))
+}
+```
+
+
+From MAG/DEAG:
+
+```{r, echo=FALSE}
+for(i in 1:11){
+HH[,paste0("use_h_3_2_no",i)] <- apply(as.matrix(HH[,"_h_3_2"]),
+                                                1,
+                                            function(x){as.numeric(as.character(i)%in%strsplit(x, " "))})
+}
+
+for(i in 1:11){
+print(kable(as.data.frame(crossTab(HH[,paste0("use_h_3_2_no",i)], 
+                             HH$leader, 
+                             paste0(i,". MAG/DEAG: ", assistanceList[i]), 
+                             "Leader")[[2]])))
+}
+```
+
+
+## Upshot
+
+* Don't use "freight service" wording.  Rather use something that captures the variety of ways that producers would transport their goods.
+
+* Don't have questions about road quality depend on answering "yes" to the first question, because then we get little information. We need to gauge *all* producers' perceptions about road quality and so we need to pose questions in a way that allow for this.  
+
+* Ask transport summary questions *for everyone* of whether there were any improvements in being able to transport products to market and then if there were any increases or decreases in volume of products transported to market. If yes, ask in terms of a standard units, like KG.
+
+* For training and technical assistance, don't need such a complicated module Just an indicator of whether they got training and then from whom will suffice.
+
+
+# Rating the Importance of Muncipal Services (I)
+
+Here we measure producers' ratings.  The question is whether the correspondence between producers and mayor's rankings draws closer from the intervention.  So, we need mayors' rating to be able to assess this.  For now we can just look at producers' ratings.
+
+```{r, echo=FALSE}
+print(dfSummary(HH[,grep("_i_", names(HH))]), method="render")
+```
+
+One thing that we can do is to look at how leaders and producers rate these things. We have cross-tabs and then also means.
+
+```{r, echo=FALSE}
+
+munServList <- c("1. Credit",
+                 "2. Supplies",
+                 "3. Machinery",
+                 "4. Extension services",
+                 "5. Public infrastructure",
+                 "6. Roads",
+                 "7. Transport of goods",
+                 "8. Electricity",
+                 "9. Contracts with buyers",
+                 "10. Contracts with public institutions")
+
+munServTab <- data.frame(service=as.character("foo"), nonleader_mean=NA, leader_mean=NA)
+
+munServTab[ ,"service"] <- as.character(munServTab[,"service"])
+
+for(i in 1:10){
+HH[,paste0("use_i_1_area_inversion_",i)] <- HH[,paste0("_i_1_area_inversion_",i)]
+HH[,paste0("use_i_1_area_inversion_",i)][HH[,paste0("_i_1_area_inversion_",i)]==99] <- 3
+HH[,paste0("use_i_1_area_inversion_",i)][is.na(HH[,paste0("_i_1_area_inversion_",i)])] <- 3
+print(kable(as.data.frame(crossTab(HH[,paste0("use_i_1_area_inversion_",i)], 
+                             HH$leader, 
+                             munServList[i], 
+                             "Leader")[[2]])))
+munServTab[i,"service"] <-   munServList[i]
+munServTab[i,"nonleader_mean"] <- mean(subset(HH, leader==0)[,paste0("use_i_1_area_inversion_",i)])
+munServTab[i,"leader_mean"] <- mean(subset(HH, leader==1)[,paste0("use_i_1_area_inversion_",i)]) 
+}
+kable(munServTab)
+```
+
+Non-leaders and leaders are pretty much identical in their expressed preferences on these services.
+
+Generally roads comes out again as the most valuable municipal service followed by machinery and facilitation of contracts with buyers.  The last is interesting in light of the effects that we documented above.
+
+Did the treatment affect these expressed preferences?
+
+```{r, echo=FALSE}
+for(i in 1:10){
+  te_up <- fitR(paste0("use_i_1_area_inversion_",i), munServList[i])
+  print(kable(resVec(te_up)))  
+}
+```
+
+Doesn't seem so. The negative effect on public infrastructure for non-leaders is probably a fluke, since it isn't there for leaders.
+
+## Upshot
+
+This module is fine, although it only becomes useful if we have mayor's ratings too so that we can measure a discrepancy score for each individual.
+
+# Opinions on the Quality of Public Services (J)
+
+This section asks producers about their opinions on the quality of public services, and specifically:
+
+- Electricity
+- Roads
+- Extension services
+
+```{r, echo=FALSE}
+print(dfSummary(HH[,grep("_j_", names(HH))]), method="render")
+```
+
+```{r, echo=FALSE}
+servList <- c("1. Elec.",
+              "2. Elec. changes",
+              "3. Roads",
+              "4. Roads changes",
+              "5. Ext. serv.",
+              "6. Ext. serv. changes")
+for(i in 1:6){
+  varUp <- names(HH)[grep(paste0("_j_",i), names(HH))]
+    HH[,paste0("use",varUp)] <- HH[,varUp]
+    HH[,paste0("use",varUp)][HH[,varUp]==100] <- ifelse(i%in%c(2,4,6), 2, 2.5)
+    HH[,paste0("use",varUp)][is.na(HH[,varUp])] <- ifelse(i%in%c(2,4,6), 2, 2.5)
+    if(i==6){HH[,paste0("use",varUp)][HH[,varUp]==4] <- 2}
+  print(kable(as.data.frame(crossTab(HH[,paste0("use",varUp)], 
+                             HH$leader, 
+                             servList[i], 
+                             "Leader")[[2]])))
+  te_up <- fitR(paste0("use",varUp), servList[i])
+  print(kable(resVec(te_up)))  
+}
+```
+
+Roads is where we see some dissatisfaction and quite a bit of variation.  
+
+## Upshot
+
+This module is good.  Suggest keeping it as is.
+
+# Access to land and land use (K)
+
+```{r, echo=FALSE}
+HH[,"_k_1_superficie"] <- HH[,"k_1_superficie"]
+HH[,"_k_2_superficie"] <- HH[,"k_2_superficie"]
+namesUp <- names(HH)[grep("_k_", names(HH))]
+print(dfSummary(HH[,namesUp[order(namesUp)]]), method="render")
+```
+
+## Land area 
+
+Harmonize the land area data so that it is all in hectares and display distributions for leaders and non-leaders.  Do for size of principal and secondary lots and also for land cultivated.
+
+```{r, echo=FALSE}
+HH$use_k_1_superficie <- cleanNeg99_to_0("_k_1_superficie")
+HH$use_k_2_superficie <- cleanNeg99_to_0("_k_2_superficie")
+HH$use_k_6_suf_cultivada_1 <- cleanNeg99_to_0("_k_6_suf_cultivada_1")
+
+HH$use_k_1_unidad <- HH[,"_k_1_unidad"]
+HH$use_k_1_unidad[is.na(HH[,"_k_1_unidad"])] <- 0
+HH$use_k_2_unidad <- HH[,"_k_2_unidad"]
+HH$use_k_2_unidad[is.na(HH[,"_k_2_unidad"])] <- 0
+HH$use_k_6_suf_cultivada_2 <- HH[,"_k_6_suf_cultivada_2"]
+HH$use_k_6_suf_cultivada_2[is.na(HH[,"_k_6_suf_cultivada_2"])] <- 0
+
+HH$use_k_1_superficie_ha <- ifelse(HH[,"use_k_1_unidad"]==1, 
+                                    HH$use_k_1_superficie*.0001,
+                                   ifelse(HH$use_k_1_superficie>250,
+                                          HH$use_k_1_superficie*.0001,
+                                          HH$use_k_1_superficie))
+HH$use_k_2_superficie_ha <- ifelse(HH[,"use_k_2_unidad"]==1, 
+                                    HH$use_k_2_superficie*.0001,
+                                   ifelse(HH$use_k_2_superficie>250,
+                                          HH$use_k_2_superficie*.0001,
+                                          HH$use_k_2_superficie))
+HH$use_k_6_suf_cultivada_1_ha <- ifelse(HH[,"use_k_6_suf_cultivada_2"]==1, 
+                                    HH$use_k_6_suf_cultivada_1*.0001,
+                                   ifelse(HH$use_k_6_suf_cultivada_1>250,
+                                          HH$use_k_6_suf_cultivada_1*.0001,
+                                          HH$use_k_6_suf_cultivada_1))
+
+```
+
+### Pooled sampled
+```{r, echo=FALSE}
+par(mfrow=c(2,1))
+with(HH,hist(use_k_1_superficie_ha, breaks=120, xlim=c(0,250)))
+with(HH,hist(use_k_2_superficie_ha, breaks=120, xlim=c(0,250)))
+with(HH,hist(use_k_6_suf_cultivada_1_ha, breaks=120, xlim=c(0,820)))
+```
+
+### Non-leaders
+```{r, echo=FALSE}
+par(mfrow=c(2,1))
+with(subset(HH, leader==0),hist(use_k_1_superficie_ha, breaks=120, xlim=c(0,250)))
+with(subset(HH, leader==0),hist(use_k_2_superficie_ha, breaks=120, xlim=c(0,250)))
+with(subset(HH, leader==0),hist(use_k_6_suf_cultivada_1_ha, breaks=120, xlim=c(0,250)))
+```
+
+
+### Leaders
+```{r, echo=FALSE}
+par(mfrow=c(2,1))
+with(subset(HH, leader==1),hist(use_k_1_superficie_ha, breaks=120, xlim=c(0,250)))
+with(subset(HH, leader==1),hist(use_k_2_superficie_ha, breaks=120, xlim=c(0,250)))
+with(subset(HH, leader==1),hist(use_k_6_suf_cultivada_1_ha, breaks=120, xlim=c(0,250)))
+```
+
+### Treatment effects
+
+```{r, echo=FALSE}
+te_k1 <- fitR("use_k_1_superficie_ha", "K1. Primary land area (ha)")
+te_k2 <- fitR("use_k_2_superficie_ha", "K2. Secondary land area (ha)")
+te_k6 <- fitR("use_k_6_suf_cultivada_1_ha", "K6. Area cultivated (ha)")
+
+lapply(lapply(list(te_k1,
+                   te_k2,
+                   te_k6), 
+              resVec), kable)
+```
+
+
+
+## Land title and use
+
+Create dummies re whether own, borrow, or rent; title type; land use. View cross tabs for leader and non-leaders
+
+```{r, echo=FALSE}
+HH$use_k_3_lote_es_own <- makeBinary("_k_3_lote_es", HH, yesValue=1)
+HH$use_k_3_lote_es_borrow <- makeBinary("_k_3_lote_es",HH, yesValue=2)
+HH$use_k_3_lote_es_rent <- makeBinary("_k_3_lote_es",HH, yesValue=3)
+
+HH$use_k_4_tit_compra_owntitle <- makeBinary("_k_4_tit_compra",HH, yesValue=1)
+HH$use_k_4_tit_compra_purchaseagr <- makeBinary("_k_4_tit_compra",HH, yesValue=2)
+HH$use_k_4_tit_compra_right <- makeBinary("_k_4_tit_compra",HH, yesValue=3)
+HH$use_k_4_tit_compra_communal <- makeBinary("_k_4_tit_compra",HH, yesValue=4)
+HH$use_k_4_tit_compra_notitle <- makeBinary("_k_4_tit_compra",HH, yesValue=5)
+
+HH$use_k_5_uso_principal_crop_temp <- makeBinary("_k_5_uso_principal",HH, yesValue=1)
+HH$use_k_5_uso_principal_crop_perm <- makeBinary("_k_5_uso_principal",HH, yesValue=2)
+HH$use_k_5_uso_principal_crop_house <- makeBinary("_k_5_uso_principal",HH, yesValue=3)
+HH$use_k_5_uso_principal_fallow <- makeBinary("_k_5_uso_principal",HH, yesValue=4)
+HH$use_k_5_uso_principal_pasture <- makeBinary("_k_5_uso_principal",HH, yesValue=5)
+HH$use_k_5_uso_principal_wild <- makeBinary("_k_5_uso_principal",HH, yesValue=6)
+HH$use_k_5_uso_principal_house_only <- makeBinary("_k_5_uso_principal",HH, yesValue=7)
+HH$use_k_5_uso_principal_rented <- makeBinary("_k_5_uso_principal",HH, yesValue=8)
+
+kable(as.data.frame(crossTab(HH$use_k_3_lote_es_own, HH$leader, "Land owned", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_k_3_lote_es_borrow, HH$leader, "Land borrowed", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_k_3_lote_es_rent, HH$leader, "Land rented", "Leader")[[2]]))
+
+kable(as.data.frame(crossTab(HH$use_k_4_tit_compra_owntitle, HH$leader, "Title: own title", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_k_4_tit_compra_purchaseagr, HH$leader, "Title: purchase agreement", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_k_4_tit_compra_right, HH$leader, "Title: derechera", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_k_4_tit_compra_communal, HH$leader, "Title: communal title", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_k_4_tit_compra_notitle, HH$leader, "Title: none", "Leader")[[2]]))
+
+
+
+kable(as.data.frame(crossTab(HH$use_k_5_uso_principal_crop_temp, HH$leader, "Land use: temp. crops", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_k_5_uso_principal_crop_perm, HH$leader, "Land use: perm crops", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_k_5_uso_principal_crop_house, HH$leader, "Land use: crops w/ house", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_k_5_uso_principal_fallow, HH$leader, "Land use: fallow", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_k_5_uso_principal_pasture, HH$leader, "Land use: pasture", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_k_5_uso_principal_wild, HH$leader, "Land use: wild", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_k_5_uso_principal_house_only, HH$leader, "Land use: house only", "Leader")[[2]]))
+kable(as.data.frame(crossTab(HH$use_k_5_uso_principal_rented, HH$leader, "Land use: rented", "Leader")[[2]]))
+```
+
+### Treatment effects
+
+```{r, echo=FALSE}
+te_k3_own <- fitR("use_k_3_lote_es_own", "K3. Land own")
+te_k3_borrow <- fitR("use_k_3_lote_es_borrow", "K3. Land borrow")
+te_k3_rent <- fitR("use_k_3_lote_es_rent", "K3. Land rent")
+
+
+te_k4_owntitle <- fitR("use_k_4_tit_compra_owntitle", "K4. Land title")
+te_k4_purchaseagr <- fitR("use_k_4_tit_compra_purchaseagr", "K4. Land purchase agr.")
+te_k4_right <- fitR("use_k_4_tit_compra_right", "K4. Land derechera")
+te_k4_communal <- fitR("use_k_4_tit_compra_communal", "K4. Land communal title")
+te_k4_notitle <- fitR("use_k_4_tit_compra_notitle", "K4. Land no title")
+
+te_k5_temp <- fitR("use_k_5_uso_principal_crop_temp", "K5. Land use: temp crop")
+te_k5_perm <- fitR("use_k_5_uso_principal_crop_perm", "K5. Land use: perm crop")
+te_k5_crophouse <- fitR("use_k_5_uso_principal_crop_house", "K5. Land use: crop w/ house")
+te_k5_fallow <- fitR("use_k_5_uso_principal_fallow", "K5. Land use: fallow")
+te_k5_pasture <- fitR("use_k_5_uso_principal_pasture", "K5. Land use: pasture")
+te_k5_wild <- fitR("use_k_5_uso_principal_wild", "K5. Land use: wild")
+te_k5_house <- fitR("use_k_5_uso_principal_house_only", "K5. Land use: house only")
+te_k5_rented <- fitR("use_k_5_uso_principal_rented", "K5. Land use: rented")
+
+lapply(lapply(list(te_k3_own,
+                   te_k3_borrow,
+                   te_k3_rent,
+                   te_k4_owntitle,
+                   te_k4_purchaseagr,
+                   te_k4_right,
+                   te_k4_communal,
+                   te_k4_notitle,
+                   te_k5_temp,
+                   te_k5_perm,
+                   te_k5_crophouse,
+                   te_k5_fallow,
+                   te_k5_pasture,
+                   te_k5_wild,
+                   te_k5_house,
+                   te_k5_rented), 
+              resVec), kable)
+```
+
+## Upshot
+
+Questions seem to work well.  Some indication of movement among leaders---e.g., in renting land or converting wild land. But not so strong.
+
+# Crop-based income and transactions (L, M)
+
+Need to merge data in from the principal and secondary lot crop rosters.  First let's take a look at the variables in the roster data:
+
+```{r}
+print(dfSummary(lote_princ), method="render")
+print(dfSummary(lote_secun), method="render")
+```
+
+The items that we have in the rosters include the following:
+
+- The crops planted (with 74 different options included and respondents reporting up to 9 different crops),
+- The land area planted for each,
+- The quantity harvested for each,
+- Number of units sold for each,
+- Price per unit sold for each,
+- To whom each crop was sold,
+- Whether sales were through an individual or collective contract,
+- 
+
+Based on these items, we can form the following measures:
+
+- crop income, which would be the sum of the number of units sold times price per unit for all items listed for each household, and 
+- number of transactions via collective vs. individual contract.
+
+
+## Crop income
+```{r, echo=FALSE}
+HH$use_l_income <- rostIncome(rosterIn= lote_princ,
+                      				quantVar="_l_3_cantidad",
+						                  priceVar="_l_4_guaranies",
+						                  incomeOut="use_l_income")
+
+HH$use_m_income <- rostIncome(rosterIn= lote_secun,
+                      				quantVar="_m_4_cantidad",
+						                  priceVar="_m_5_guaranies",
+						                  incomeOut="use_m_income")
+HH$use_l_m_income_usd <- 0.00016*(HH$use_l_income + HH$use_m_income)
+# Cleaning up outliers likely due to errors -- note need to look into this more systematically:
+HH$use_l_m_income_usd[HH$use_l_m_income_usd>100000] <- HH$use_l_m_income_usd[HH$use_l_m_income_usd>100000]/1000
+# Computing log since distribution is very skew
+HH$use_l_m_income_usd_log <- log(HH$use_l_m_income_usd+1)
+```
+
+### Descriptives
+```{r, echo=FALSE}
+hist(subset(HH, leader==0)$use_l_m_income_usd, main="Non-leaders crop income", breaks=100)
+hist(subset(HH, leader==0)$use_l_m_income_usd_log, main="Non-leaders crop income (log)", breaks=100)
+hist(subset(HH, leader==1)$use_l_m_income_usd, main="Leaders crop income", breaks=100)
+hist(subset(HH, leader==1)$use_l_m_income_usd_log, main="Leaders crop income (log)", breaks=100)
+```
+
+### Treatment effects
+
+```{r, echo=FALSE}
+te_l_m_income <- fitR("use_l_m_income_usd_log", "L and M. Crop income (log)")
+kable(resVec(te_l_m_income))
+```
+
+## Collective vs. individual contract
+
+```{r, echo=FALSE}
+hh_l_cont <- rostContract(rosterIn=lote_princ,
+                            contrVar="_l_6_contrato",
+                            anyOut = "use_l_trans_any")
+
+hh_m_cont <- rostContract(rosterIn=lote_secun,
+                            contrVar="_m_7_contrato",
+                            anyOut = "use_m_trans_any")
+
+HH$use_l_m_trans_any_sum <- hh_l_cont$use_l_trans_any + hh_m_cont$use_m_trans_any
+HH$use_l_m_contr_ind_sum <- hh_l_cont$use_l_6_contrato_ind + hh_m_cont$use_m_7_contrato_ind
+HH$use_l_m_contr_col_sum <- hh_l_cont$use_l_6_contrato_col + hh_m_cont$use_m_7_contrato_col
+```
+
+### Descriptives
+```{r, echo=FALSE}
+hist(subset(HH, leader==0)$use_l_m_trans_any_sum, main="Non-leaders: num. transactions", breaks=100)
+hist(subset(HH, leader==1)$use_l_m_trans_any_sum, main="Leaders: num. transactions", breaks=100)
+
+hist(subset(HH, leader==0)$use_l_m_contr_ind_sum, main="Non-leaders: num. indiv. contract trans.", breaks=100)
+hist(subset(HH, leader==1)$use_l_m_contr_ind_sum, main="Leaders: num. indiv. contract trans.", breaks=100)
+
+hist(subset(HH, leader==0)$use_l_m_contr_col_sum, main="Non-leaders: num. coll. contract trans.", breaks=100)
+hist(subset(HH, leader==1)$use_l_m_contr_col_sum, main="Leaders: num. coll. contract trans.", breaks=100)
+```
+
+### Treatment effects
+```{r, echo=FALSE}
+te_l_m_trans_any <- fitR("use_l_m_trans_any_sum",  "L and M. Num. transactions")
+te_l_m_con_ind <- fitR("use_l_m_contr_ind_sum", "L and M. Transactions w/ indiv. contracts")
+te_l_m_con_col <- fitR("use_l_m_contr_col_sum", "L and M. Transactions w/ coll. contracts")
+lapply(lapply(list(te_l_m_trans_any, te_l_m_con_ind, te_l_m_con_col), resVec), kable)
+```
+
+## Upshot
+
+- Issue here is that there is a lot of missing data (-99 values), which contributes to measurement error. Wondering if survey enumerators can do more to probe to try to get some estimate in cases where respondents cannot offer precise quantities.
+- Also, there are many zeroes in the data, and this makes me wonder if we are missing something.  So, perhaps there should be a question at the end, where if no crop income is recorded, that the enumerator just asks "so I want to be sure that I have this correct: you have had no crop income in the past 12 months?"  Also, it may be that many of the zeroes are driven by people who are primarily engaged in livestock based production, in which case we could make an agr. income variable that sums across crops and livestock.
+- Otherwise the modules seem to be okay.
+
+# Sale of livestock (N)
+
+Here we also have roster data on livestock transactions  Let's look at what the data contain:
+
+```{r, echo=FALSE}
+print(dfSummary(prod_pecu), method="render")
+```
+
+We have
+
+- Type and quantity of each type of livestock,
+- Number of each type of animal sold,
+- Price at which each animal was sold,
+- To whom the animals were sold,
+- Whether sales were under an individual or collective contract.
+
+So the structure is similar to the previous section.  As such, we can create similar variables:
+
+- Total value of animal products sold,
+- Number of transactions and then number of transactions under individual or collective contract.
+
+## Animal sale income
+
+```{r, echo=FALSE}
+HH$use_n_income <- rostIncome(	rosterIn=prod_pecu,
+						                    quantVar="_n_4_cantidad",
+						                    priceVar="_n_5_guaranies",
+						                    incomeOut="use_n_income")
+HH$use_n_income_usd <- 0.00016*(HH$use_n_income)
+# Cleaning up outliers likely due to errors -- note need to look into this more systematically:
+HH$use_n_income_usd[HH$use_n_income_usd>100000] <- HH$use_n_income_usd[HH$use_n_income_usd>100000]/1000
+HH$use_n_income_usd_log <- log(HH$use_n_income_usd+1)
+```
+
+### Descriptives
+```{r, echo=FALSE}
+hist(subset(HH, leader==0)$use_n_income_usd, main="Non-leaders animal sale income", breaks=100)
+hist(subset(HH, leader==1)$use_n_income_usd, main="Leaders animal sale income", breaks=100)
+
+hist(subset(HH, leader==0)$use_n_income_usd_log, main="Non-leaders animal sale income (log)", breaks=100)
+hist(subset(HH, leader==1)$use_n_income_usd_log, main="Leaders animal sale income (log)", breaks=100)
+```
+
+
+### Treatment effects
+
+```{r, echo=FALSE}
+te_n_income <- fitR("use_n_income_usd_log",  "N. Animal sale income (log)")
+kable(resVec(te_n_income))
+```
+
+## Transactions and contracts
+
+```{r, echo=FALSE}
+hh_n_cont <- rostContract(rosterIn=prod_pecu,
+                            contrVar="_n_7_contrato",
+                            anyOut = "use_n_trans_any")
+
+HH$use_n_trans_any <- hh_n_cont$use_n_trans_any
+HH$use_n_7_contrato_ind <- hh_n_cont$use_n_7_contrato_ind
+HH$use_n_7_contrato_col <- hh_n_cont$use_n_7_contrato_col
+```
+
+### Descriptives
+```{r, echo=FALSE}
+hist(subset(HH, leader==0)$use_n_trans_any, main="Non-leaders: num. animal sales", breaks=100)
+hist(subset(HH, leader==1)$use_n_trans_any, main="Leaders: num. animal sales", breaks=100)
+
+hist(subset(HH, leader==0)$use_n_7_contrato_ind, main="Non-leaders: num. indiv. animal sale contract trans.", breaks=100)
+hist(subset(HH, leader==1)$use_n_7_contrato_ind, main="Leaders: num. indiv. animal sale contract trans.", breaks=100)
+
+hist(subset(HH, leader==0)$use_n_7_contrato_col, main="Non-leaders: num. coll. animal sale contract trans.", breaks=100)
+hist(subset(HH, leader==1)$use_n_7_contrato_col, main="Leaders: num. coll. animal sale contract trans.", breaks=100)
+```
+
+### Treatment effects
+```{r, echo=FALSE}
+te_n_trans_any <- fitR("use_n_trans_any",  "N. Num. animal sales")
+te_n_con_ind <- fitR("use_n_7_contrato_ind", "N. Animal sales w/ indiv. contracts")
+te_n_con_col <- fitR("use_n_7_contrato_col", "N. Animal sales w/ coll. contracts")
+lapply(lapply(list(te_n_trans_any, te_n_con_ind, te_n_con_col), resVec), kable)
+```
+
+## Upshot
+
+- This roster really only measures actual animals sold.  And so the next roster (in the next section) may be more meaningful in that it captures things like milk, etc.
+- Otherwise, this is fine as it is.
+
+# Animal product sales (O)
+
+Similar as the above, in this case we are talking about animal products like meat, milk, cheese, eggs, etc:
+
+```{r, echo=FALSE}
+print(dfSummary(prod_deri), method="render")
+```
+
+The data include measures of:
+
+- Types of products sold,
+- Quantity of each sold,
+- Prices obtained,
+- Whether sold under individual or collective contract.
+
+So again, we will make measures of income as well as transactions and contracts, as above.
+
+
+## Animal product income
+
+```{r, echo=FALSE}
+HH$use_o_income <- rostIncome(	rosterIn=prod_deri,
+						                    quantVar="_o_3_cantidad",
+						                    priceVar="_o_4_guaranies",
+						                    incomeOut="use_o_income")
+HH$use_o_income_usd <- 0.00016*(HH$use_o_income)
+# Cleaning up outliers likely due to errors -- note need to look into this more systematically:
+HH$use_o_income_usd[HH$use_o_income_usd>100000] <- HH$use_o_income_usd[HH$use_o_income_usd>100000]/1000
+HH$use_o_income_usd_log <- log(HH$use_o_income_usd+1)
+```
+
+### Descriptives
+```{r, echo=FALSE}
+hist(subset(HH, leader==0)$use_o_income_usd, main="Non-leaders animal products income", breaks=100)
+hist(subset(HH, leader==1)$use_o_income_usd, main="Leaders animal products income", breaks=100)
+
+hist(subset(HH, leader==0)$use_o_income_usd_log, main="Non-leaders animal products income (log)", breaks=100)
+hist(subset(HH, leader==1)$use_o_income_usd_log, main="Leaders animal products income (log)", breaks=100)
+```
+
+### Treatment effects
+
+```{r, echo=FALSE}
+te_o_income <- fitR("use_o_income_usd_log",  "O. Animal products income (log)")
+kable(resVec(te_o_income))
+```
+
+## Animal product sales contracts
+
+```{r, echo=FALSE}
+hh_o_cont <- rostContract(rosterIn=prod_deri,
+                            contrVar="_o_6_contrato",
+                            anyOut = "use_o_trans_any")
+HH$use_o_trans_any <- hh_o_cont$use_o_trans_any
+HH$use_o_6_contrato_ind <- hh_o_cont$use_o_6_contrato_ind
+HH$use_o_6_contrato_col <- hh_o_cont$use_o_6_contrato_col
+```
+
+
+### Descriptives
+```{r, echo=FALSE}
+hist(subset(HH, leader==0)$use_o_trans_any, main="Non-leaders: num. animal product sales", breaks=100)
+hist(subset(HH, leader==1)$use_o_trans_any, main="Leaders: num. animal product sales", breaks=100)
+
+hist(subset(HH, leader==0)$use_o_6_contrato_ind, main="Non-leaders: num. indiv. animal product contract trans", breaks=100)
+hist(subset(HH, leader==1)$use_o_6_contrato_ind, main="Leaders: num. indiv. animal product  contract trans.", breaks=100)
+
+hist(subset(HH, leader==0)$use_o_6_contrato_col, main="Non-leaders: num. coll. animal product contract trans.", breaks=100)
+hist(subset(HH, leader==1)$use_o_6_contrato_col, main="Leaders: num. coll. animal product contract trans.", breaks=100)
+```
+
+### Treatment effects
+```{r, echo=FALSE}
+te_o_trans_any <- fitR("use_o_trans_any",  "O. Num. animal product transactions")
+te_o_con_ind <- fitR("use_o_6_contrato_ind", "O. Animal product trans, w/ indiv. contracts")
+te_o_con_col <- fitR("use_o_6_contrato_col", "O. Animal product trans, w/ coll. contracts")
+lapply(lapply(list(te_o_trans_any, te_o_con_ind, te_o_con_col), resVec), kable)
+```
+
+# Aggregate Agricultural Income and Transactions (L-O)
+
+We will aggregate the various forms of agricultural income and transactions documented in the various rosters above.
+
+```{r, echo=FALSE}
+HH$use_l_m_n_o_total_income_usd <- HH$use_l_m_income_usd + HH$use_n_income_usd + HH$use_o_income_usd
+HH$use_l_m_n_o_total_income_usd_log <- log(HH$use_l_m_n_o_total_income_usd+1)
+HH$use_l_m_n_o_total_trans_any <- HH$use_l_m_trans_any_sum + HH$use_n_trans_any + HH$use_o_trans_any
+HH$use_l_m_n_o_total_cont_ind <- HH$use_l_m_contr_ind_sum + HH$use_n_7_contrato_ind + HH$use_o_6_contrato_ind
+HH$use_l_m_n_o_total_cont_col <- HH$use_l_m_contr_col_sum + HH$use_n_7_contrato_col + HH$use_o_6_contrato_col
+```
+
+## Descriptives
+
+```{r, echo=FALSE}
+hist(subset(HH, leader==0)$use_l_m_n_o_total_income_usd, breaks=100, main="Non-leaders: Agr. income")
+hist(subset(HH, leader==1)$use_l_m_n_o_total_income_usd, breaks=100, main="Leaders: Agr. income")
+
+hist(subset(HH, leader==0)$use_l_m_n_o_total_income_usd_log, breaks=100, main="Non-leaders: Agr. income (log)")
+hist(subset(HH, leader==1)$use_l_m_n_o_total_income_usd_log, breaks=100, main="Leaders: Agr. income (log)")
+
+hist(subset(HH, leader==0)$use_l_m_n_o_total_trans_any, breaks=100, main="Non-leaders: Agr. transactions")
+hist(subset(HH, leader==1)$use_l_m_n_o_total_trans_any, breaks=100, main="Leaders: Agr. transactions")
+
+hist(subset(HH, leader==0)$use_l_m_n_o_total_cont_ind, breaks=100, main="Non-leaders: Agr. trans. under indiv. contract")
+hist(subset(HH, leader==1)$use_l_m_n_o_total_cont_ind, breaks=100, main="Leaders: Agr. trans. under indiv. contract")
+
+hist(subset(HH, leader==0)$use_l_m_n_o_total_cont_col, main="Non-leaders: Agr. trans. under col. contract")
+hist(subset(HH, leader==1)$use_l_m_n_o_total_cont_col, main="Leaders: Agr. trans. under col. contract")
+```
+
+
+## Treatment Effects
+
+```{r, echo=FALSE}
+te_l_o_income <- fitR("use_l_m_n_o_total_income_usd_log",  "L-O. Agr. income (log)")
+te_l_o_trans_any <- fitR("use_l_m_n_o_total_trans_any",  "L-O. Agr. transactions")
+te_l_o_indcont <- fitR("use_l_m_n_o_total_cont_ind",  "L-O. Agr. trans. w/ ind. contr.")
+te_l_o_colcont <- fitR("use_l_m_n_o_total_cont_col",  "L-O. Agr. trans. w/ col. contr.")
+lapply(lapply(list(te_l_o_income, te_l_o_trans_any, te_l_o_indcont, te_l_o_colcont), resVec), kable)
+```
+
+## Upshot
+
+- The sales and prices data seem good and therefore provide good measures of agr. income.
+- There were very few instances of reported contracts, whether individual or collective. This makes me wonder whether we are somehow mismeasuring this.  E.g., it may be that there are contracts with producers organizations, but then individual producers don't really have a clear idea about this.  We should look into this to see if we need to modify the questions.
+
+# Production upgrading (P)
+
+This section measures various types of production upgrading that producers may undertake:
+
+- Adopting new technologies,
+- Adopting new techniques,
+- Obtaining new certifications,
+- Diversifying production in the past year,
+- Thinking to diversify in the coming year,
+- Beginning to process products,
+- Beginning to sell products directly to consumers,
+
+A summary of the data:
+
+```{r, echo=FALSE}
+print(dfSummary(HH[,grep("_p_", names(HH))]), method="render")
+```
+## Descriptives
+Clean up the yes-no variables and then view tables:
+```{r, echo=FALSE}
+labVec <- c("technologies",
+            "techniques",
+            "certifications",
+            "diversification",
+            "diversification planned",
+            "began processing",
+            "direct sales")
+itemVec <- c(1:6, 8)
+for(i in 1:length(itemVec)){
+  varUp <- findNames(paste0("_p_", itemVec[i]), HH)
+  HH[,paste0("use",varUp)] <- makeBinary(varUp, HH, 1)
+  print(kable(as.data.frame(crossTab(HH[,paste0("use",varUp)], 
+                             HH$leader, 
+                             paste0("Upgrading: ",labVec[i]), 
+                             "Leader")[[2]])))
+}  
+
+HH[,"use_p_total"] <- apply(HH[, findNames("use_p_", HH)],
+                          1,
+                          sum)
+HH[,"use_p_any"] <- as.numeric(HH[,"use_p_total"] > 0)
+
+print(kable(as.data.frame(crossTab(HH[,"use_p_total"], 
+                             HH$leader, 
+                             "Upgrading: total", 
+                             "Leader")[[2]])))
+print(kable(as.data.frame(crossTab(HH[,"use_p_any"], 
+                             HH$leader, 
+                             "Upgrading: any", 
+                             "Leader")[[2]])))
+```
+
+## Treatment effects
+
+```{r, echo=FALSE}
+for(i in 1:length(itemVec)){
+  varUp <- findNames(paste0("_p_", itemVec[i]), HH)
+  teUp <- fitR(paste0("use",varUp),  paste0("Upgrading: ",labVec[i]))
+  print(kable(resVec(teUp)))
+}
+te_p_total <- fitR("use_p_total",  "Upgrading: total")
+te_p_any <- fitR("use_p_any",  "Upgrading: any")
+print(kable(resVec(te_p_total)))
+print(kable(resVec(te_p_any)))
+```
+
+## Upshot
+
+- We could drop questions 7 and 9 that get into more details about whether these particular upgrades were done individually or through the collective. Reason is that they are conditional, and since the responses are rare anyway, we don't get anything valuable from them.
+
+
+# Land investments (Q)
+
+Covers the following:
+
+- Selling any land,
+- Buying any land,
+- Rent out any land to others,
+- Rent land from others.
+
+This is what we have in the main dataset:
+```{r, echo=FALSE}
+print(dfSummary(HH[,grep("_q_", names(HH))]), method="render")
+```
+
+And then there are rosters:
+```{r, echo=FALSE}
+print(dfSummary(tierr_vend), method="render")
+print(dfSummary(tierr_comp), method="render")
+print(dfSummary(tierr_alqu_a), method="render")
+print(dfSummary(tierr_alqu_d), method="render")
+```
+
+## Descriptives
+
+We have very little action here:
+- 52 people, or 3% of the sample, sold land.
+- 74 people, or 4% of sample, bought land.
+- 65 people, or 4% of sample, rented any of their land to others.
+- 194 people, or 11% of sample, rented land from others.
+Given these low counts, not much value in using the roster data.  
+
+```{r, echo=FALSE}
+labVec <- c("sold",
+            "bought",
+            "rented to others",
+            "rented from others")
+itemVec <- c(1,3,5,7)
+for(i in 1:length(itemVec)){
+  varUp <- findNames(paste0("_q_", itemVec[i]), HH)
+  HH[,paste0("use",varUp)] <- makeBinary(varUp, HH, 1)
+  print(kable(as.data.frame(crossTab(HH[,paste0("use",varUp)], 
+                             HH$leader, 
+                             paste0("Land: ",labVec[i]), 
+                             "Leader")[[2]])))
+}  
+```
+
+## Treatment effects
+
+```{r, echo=FALSE}
+for(i in 1:length(itemVec)){
+  varUp <- findNames(paste0("_q_", itemVec[i]), HH)
+  teUp <- fitR(paste0("use",varUp),  paste0("Land: ",labVec[i]))
+  print(kable(resVec(teUp)))
+}
+```
+
+
+## Upshot
+
+Given how few transactions we have, we should simplify this.  Maybe just a question of whether any of these transactions occurred and then a summary questions of how much sold/bought/rented in total (the roster is overkill).
+
+Not sure what to make of the apparent negative effect on renting land from others among leaders.
+
+# Household characteristics/covariates (R)
+
+This module measures household characteristics that are meant to serve as covariates and to provide context.  Here are the things that are measured:
+
+- Floor type (ordered: 1=dirt to 5=tile)
+- Ceiling type (ordered: 1=tile to 6=cardboard/tarp)
+- Wall type (ordered: 1=wood, 2=brick, 3=cinder block, 4=palm leaves, 5=cardboard/tarp)
+- Water source **(need to order these)**
+- Cooking fuel (create indicators for each)
+- Light source (create indicators for each)
+- Various durable assets (create indicators for each). 
+- Toilet in the house.
+- Type of toilet (ordered: 1=modern bathroom in house to 4=latrine without roof or door)
+
+As the listing above suggests, we need to do some recoding so that we have things in scales that go from worst to best.
+
+## Descriptives
+
+So basically everyone has electric lights, so we can drop that.
+Same for own bathroom.
+
+```{r, echo=FALSE}
+HH[,"use_r_1_piso"] <- cleanMissMode("_r_1_piso", 98)
+HH[,"use_r_2_techo"] <- cleanMissMode("_r_2_techo", 98)
+HH[,"use_r_3_pared"] <- cleanMissMode("_r_3_pared", 98)
+HH[,"use_4_fuente_principal"] <- cleanMissMode("_r_4_fuente_principal", 98)
+
+cookList <- c("gas",
+              "coal",
+              "elec",
+              "keros",
+              "wood",
+              "none")
+for(i in 1:6){
+  HH[,paste0("use_r_5_combustible_",
+           cookList[i])] <- apply(as.matrix(HH[,"_r_5_combustible"]),
+                                    1,
+                              function(x){as.numeric(i %in%  unlist(strsplit(x," ")))})  
+}
+
+bienList <- c("radio",
+              "tv",
+              "fridge",
+              "gasstove",
+              "washmach",
+              "mobile",
+              "motocyc",
+              "shower",
+              "oven")
+for(i in 1:9){
+  HH[,paste0("use_r_7_bienes_",
+           bienList[i])] <- apply(as.matrix(HH[,"_r_7_bienes"]),
+                                    1,
+                              function(x){as.numeric(i %in%  unlist(strsplit(x," ")))})  
+}
+
+banoList <- c("mod_inside",
+              "mod_outside",
+              "latr_wfloor",
+              "latr_nfloor")
+for(i in 1:4){
+  HH[,paste0("use_r_9_tipo_banyo_",
+           banoList[i])] <- apply(as.matrix(HH[,"_r_9_tipo_banyo"]),
+                                    1,
+                              function(x){as.numeric(i %in%  unlist(strsplit(x," ")))})  
+}
+print(dfSummary(HH[,grep("use_r_", names(HH))]), method="render")
+```
+
+Use principal components to come up with an index of wealth. First, need to drop anything that is constant.  Then, we can assess whether there is one or more dominant factors.
+```{r, echo=FALSE}
+varCheck <- apply(HH[,findNames("use_r", HH)], 2, sd)
+dropVar <- names(varCheck)[varCheck==0]
+names(HH)[names(HH)==findNames("use_r", HH)[findNames("use_r", HH) %in% dropVar]] <- paste0("no",dropVar)
+prcompHHChar <-  prcomp(as.formula(paste0("~", paste0(findNames("use_r", HH), collapse=" + "))),
+              data = HH,
+              scale=TRUE)
+screeplot(prcompHHChar,
+          type="lines")
+print(kable(prcompHHChar[[2]][,1:3]))
+HH[,"use_r_index"] <- as.numeric(predict(prcompHHChar)[,"PC1"])
+hist(HH[,"use_r_index"])
+```
+
+Screeplot shows that there is one dominant factor.  So that will be our "wealth" index.
+We also display the factor loadings for the first three principal components.  For PC1, things look reasonable for constructing a measure of wealth.
+
+## Placebo tests
+
+```{r, echo=FALSE}
+te_r_placebo <- fitR("use_r_index",  "Placebo check: wealth index")
+print(kable(resVec(te_r_placebo)))
+```
+
+## Upshot
+
+- Just need to code the water sources variable so that we can include it.
+
+
+# Knowledge of project financing
+
+This section asks respondents if they know that USAID is responsible for the project.  
+
+- For the first question, "1" means "yes" or that the respondent knows USAID is financing, while other numbers mean that they do not know.
+- For the second, a "1" means that they have seen the USAID logo.
+- For the third, a "1" means that they know what the logo is for.
+- For the fourth, a "1" means that they know that the logo is American.
+
+```{r, echo=FALSE}
+print(dfSummary(HH[,grep("_s_", names(HH))]), method="render")
+```
+
+Knowledge of USAID's role and recognition that the logo is generally poor.  We can see how this varies by whether the person is a leader or not:
+```{r, echo=FALSE}
+
+HH[,"use_s_1_fecoprod"] <- makeBinary("_s_1_fecoprod", HH, 1)
+HH[,"use_s_2_usaid_logo"] <- makeBinary("_s_2_usaid_logo", HH, 1)
+HH[,"use_s_4_procedencia_usaid"] <- makeBinary("_s_4_procedencia_usaid", HH, 1)
+
+print(kable(as.data.frame(crossTab(HH[,"use_s_1_fecoprod"], 
+                             HH$leader, 
+                             "Know USAID funds", 
+                             "Leader")[[2]])))
+
+print(kable(as.data.frame(crossTab(HH[,"use_s_2_usaid_logo"], 
+                             HH$leader, 
+                             "Seen USAID logo", 
+                             "Leader")[[2]])))
+
+print(kable(as.data.frame(crossTab(HH[,"use_s_4_procedencia_usaid"], 
+                             HH$leader,                             
+                             "Know USAID is American", 
+                             "Leader")[[2]])))
+
+```
+
+As expected, leaders are much better informed.
+
+
+# Save data for follow on analyses
+```{r}
+write.csv(HH,
+          file="working/endr1-working.csv",
+          row.names=F)
+```
+
+
+
+
+
